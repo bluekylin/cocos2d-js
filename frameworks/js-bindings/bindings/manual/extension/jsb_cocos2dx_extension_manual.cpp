@@ -1131,6 +1131,93 @@ bool js_load_remote_image(JSContext *cx, uint32_t argc, jsval *vp)
     return false;
 }
 
+//<!-- 扫雷项目中用来生成地图的缩略图
+bool js_create_thumbnail(JSContext *cx, uint32_t argc, jsval *vp)
+{
+	jsval *argv = JS_ARGV(cx, vp);
+	JSObject *obj = JS_THIS_OBJECT(cx, vp);
+	if (argc == 2) {
+		std::string filePath;
+		bool ok = jsval_to_std_string(cx, argv[0], &filePath);
+		JSB_PRECONDITION2(ok, cx, false, "js_create_thumbnail : Error to get filePath!");
+
+		JS::RootedObject jsobj(cx);
+		ok = argv[1].isObject() && JS_ValueToObject(cx, JS::RootedValue(cx, argv[1]), &jsobj);
+		JSB_PRECONDITION3(ok, cx, false, "Error converting value to object");
+		JSB_PRECONDITION3(jsobj && JS_IsArrayObject(cx, jsobj), cx, false, "Object must be an array");
+
+		uint32_t height = 0;
+		uint32_t width = 0;
+		JS_GetArrayLength(cx, jsobj, &height);
+
+		if (height > 0)
+		{
+			JS::RootedValue value(cx);
+			if (JS_GetElement(cx, jsobj, 0, &value))
+			{
+				JS::RootedObject jsobj(cx);
+				if (value.isObject() && JS_ValueToObject(cx, value, &jsobj) && JS_IsArrayObject(cx, jsobj))
+				{
+					JS_GetArrayLength(cx, jsobj, &width);
+				}
+			}
+		}
+
+		if (width > 0)
+		{
+			unsigned char* image_data = new unsigned char[height * width * 4];
+
+			for (uint32_t ii = 0; ii < height; ++ii)
+			{
+				JS::RootedValue one_line_value(cx);
+				JS_GetElement(cx, jsobj, ii, &one_line_value);
+				JS::RootedObject one_line_obj(cx);
+				JS_ValueToObject(cx, one_line_value, &one_line_obj);
+
+				for (uint32_t jj = 0; jj < width; ++jj)
+				{
+					JS::RootedValue one_bit_value(cx);
+					JS_GetElement(cx, one_line_obj, jj, &one_bit_value);
+					int32_t value;
+					jsval_to_int32(cx, one_bit_value, &value);
+					
+					uint32_t idx = ii * width + jj;
+
+					//RGBA8888
+					if (value == 0)
+					{
+						image_data[idx * 4] = 0xFF;
+						image_data[idx * 4 + 1] = 0xFF;
+						image_data[idx * 4 + 2] = 0xFF;
+						image_data[idx * 4 + 3] = 0x00;
+					}
+					else
+					{
+						image_data[idx * 4] = 0x0;
+						image_data[idx * 4 + 1] = 0x0;
+						image_data[idx * 4 + 2] = 0x0;
+						image_data[idx * 4 + 3] = 0xFF;
+					}
+				}
+			}
+
+			cocos2d::Image image;
+
+			image.initWithRawData(image_data, height * width * 4, width, height, 8);
+
+			image.saveToFile(filePath, false);
+
+			delete[] image_data;
+		}
+
+		JS_SET_RVAL(cx, vp, JSVAL_VOID);
+		return true;
+	}
+
+	JS_ReportError(cx, "js_load_remote_image : wrong number of arguments");
+	return false;
+}
+// --!>
 extern JSObject* jsb_cocos2d_extension_ScrollView_prototype;
 extern JSObject* jsb_cocos2d_extension_TableView_prototype;
 extern JSObject* jsb_cocos2d_extension_EditBox_prototype;
@@ -1164,4 +1251,8 @@ void register_all_cocos2dx_extension_manual(JSContext* cx, JSObject* global)
 	create_js_root_obj(cx, global, "jsb", &jsbObj);
     
     JS_DefineFunction(cx, jsbObj, "loadRemoteImg", js_load_remote_image, 2, JSPROP_READONLY | JSPROP_PERMANENT);
+
+	//<!-- 扫雷项目中用来生成地图的缩略图
+	JS_DefineFunction(cx, jsbObj, "createThumbnail", js_create_thumbnail, 2, JSPROP_READONLY | JSPROP_PERMANENT);
+	// --!>
 }
